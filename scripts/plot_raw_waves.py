@@ -33,18 +33,19 @@ for f in working_data:
     
     times = np.arange(data.shape[0]) / sampling_rate
     
-    fig,ax = plt.subplots(figsize = (10,6))
-    ax.plot(times,data,)
-    ax.set(xlabel = 'time',
-           title = f'{f_name}')
-    
-    fig.savefig(os.path.join(
-            figure_dir,
-            sub_folder,
-            f_name.replace('wav','png')),
-            dpi = 400,
-            bbox_inches = 'tight')
-    plt.close('all')
+    if not os.path.exists(os.path.join(figure_dir,sub_folder,f_name.replace('wav','png'))):
+        fig,ax = plt.subplots(figsize = (10,6))
+        ax.plot(times,data,)
+        ax.set(xlabel = 'time',
+               title = f'{f_name}')
+        
+        fig.savefig(os.path.join(
+                figure_dir,
+                sub_folder,
+                f_name.replace('wav','png')),
+                dpi = 400,
+                bbox_inches = 'tight')
+        plt.close('all')
 
 
 
