@@ -47,6 +47,8 @@ for f in working_data:
                 bbox_inches = 'tight')
         plt.close('all')
 
+figure_dir = '../figure/'
+
 
 
 
