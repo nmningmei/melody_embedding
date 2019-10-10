@@ -7,9 +7,13 @@ Created on Mon Oct 7 10:09:21 2019
 """
 
 import os
+import gc
 import numpy      as np
 import tensorflow as tf
+if not tf.executing_eagerly():
+    tf.executing_eagerly()
 from glob                                 import glob
+from tqdm                                 import tqdm
 
 from tensorflow.keras.preprocessing.image import (load_img,
                                                   img_to_array)
@@ -19,6 +23,8 @@ from tensorflow.keras                     import (layers,
                                                   applications,
                                                   optimizers,
                                                   losses)
+from scipy.spatial                        import distance
+from sklearn.utils                        import shuffle
 
 # DEFINE MAIN VARIABLES & DIRECTORIES
 spectrograms_dir    = '../data/spectrograms/'
@@ -39,7 +45,7 @@ base_model          = applications.mobilenet_v2.MobileNetV2(weights         = No
 
 inputs_spec         = base_model.input
 outputs_spec        = base_model.output
-#outputs_spec        = layers.Activation('sigmoid',name = 'output_sig')(outputs_spec)
+outputs_spec        = layers.Activation('sigmoid',name = 'output_sig')(outputs_spec)
 spec_model          = models.Model(inputs_spec,outputs_spec,name = 'spectro')
 
 # CRNN
@@ -66,14 +72,14 @@ conv1 = layers.Conv1D(filters = 16,
                       kernel_initializer = "lecun_normal",
                       name = "conv1_2")(conv1)
 rnn = layers.GRU(units = 1,
-#                 activation = 'sigmoid',
+                 activation = 'sigmoid',
                  return_sequences = True,
                  name = "rnn")(conv1)
 rnn_reshape = layers.Lambda(lambda x: tf.keras.backend.squeeze(x, 2))(rnn)
 
 wave_model = models.Model(inputs,rnn_reshape,name = 'wave')
 
-loss_func = losses.MeanAbsoluteError()
+loss_func = losses.CosineSimilarity()
 
 spec_optimizer = optimizers.Adam(lr = 1e-4,)
 wave_optimizer = optimizers.Adam(lr = 1e-4,)
@@ -96,7 +102,7 @@ def train_step(img,wave_form):
 n_epochs = 100
 
 for epoch in range(n_epochs):
-
+    spectrograms, audios = shuffle(spectrograms,audios)
     total_loss = 0
     for step,(a,b) in enumerate(zip(spectrograms,audios)):
     
@@ -110,11 +116,26 @@ for epoch in range(n_epochs):
         
         em1 = spec_model(img[np.newaxis])
         em2 = wave_model(wave_form[np.newaxis,])
+        print(em1.min(),em1.max(),em2.min(),em2.max())
         total_loss += loss_func(em1,em2).numpy()
         print(f"loss = {total_loss / (step + 1):.4f}")
     
-    embeddings1 = np.array([spec_model((img_to_array(load_img(img, target_size = (224,224,3))) / 255.)[np.newaxis,]).numpy() for img in spectrograms])
-    embeddings2 = np.array([wave_model(np.load(wave_form).astype("float32")[np.newaxis,]).numpy() for wave_form in audios])
+    embeddings1 = np.array([spec_model((img_to_array(load_img(img, target_size = (224,224,3))) / 255.)[np.newaxis,]).numpy() for img in tqdm(spectrograms,desc = 'spectrograms')])
+    
+    gc.collect()
+    embeddings2 = np.array([wave_model(np.load(wave_form).astype("float32")[np.newaxis,]).numpy() for wave_form in tqdm(audios,desc = 'audios')])
+    
+    embeddings1 = np.squeeze(embeddings1,axis = 1)
+    embeddings2 = np.squeeze(embeddings2,axis = 1)
+    
+    dissimilarity = []
+    for a,b in zip(embeddings1,embeddings2):
+        dis = distance.cdist(a.reshape(1,-1),
+                             b.reshape(1,-1))
+#        print(dis)
+        dissimilarity.append(dis.flatten()[0])
+    dissimilarity = np.array(dissimilarity)
+    print(f"epoch {epoch + 1} {dissimilarity.mean():.4f}+/-{dissimilarity.std():.4f}")
     
     
     
