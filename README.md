@@ -8,3 +8,4 @@
 - [ ] Examine the embeddings via decoding
 
 ## Best score (distance between embeddings):
+0.01059
