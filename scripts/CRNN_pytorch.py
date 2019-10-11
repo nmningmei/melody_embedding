@@ -239,7 +239,7 @@ if __name__ == '__main__':
             if os.path.exists(os.path.join(weight_dir,'CNN_path.pth')):
                 print('load best weights')
                 computer_vision_net.load_state_dict(torch.load(os.path.join(weight_dir,'CNN_path.pth')))
-                sound_net.load_state_dict(torch.load(os.path.join(weight_dir,'RNN_path.pth')))
+                sound_net.load_state_dict(          torch.load(os.path.join(weight_dir,'RNN_path.pth')))
             print('training ...')
             train_losses = train_loop(computer_vision_net,
                                       sound_net,
@@ -259,9 +259,11 @@ if __name__ == '__main__':
             print('determine early stop and save weights')
             if distances.mean().cpu().clone().detach().type(torch.float64) < best_score:
                 best_score = distances.mean().cpu().clone().detach().type(torch.float64)
-                print('saving weights of the best models')
+                print('saving weights of the best models\n')
                 torch.save(computer_vision_net.state_dict(),os.path.join(weight_dir,'CNN_path.pth'))
                 torch.save(sound_net.state_dict(),          os.path.join(weight_dir,'RNN_path.pth'))
+            else:
+                print('nah, I have seen better\n')
             results['train_loss_CV'].append(train_losses[0].detach().cpu().numpy())
             results['train_loss_SN'].append(train_losses[1].detach().cpu().numpy())
             results['distance'     ].append(distances.mean().detach().cpu().numpy())
