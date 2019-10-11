@@ -1,2 +1,7 @@
 # melody_embedding
-embedding audio
+
+## Self-supervised Learning
+[insert text]
+
+## Goals:
+[ ] - 
