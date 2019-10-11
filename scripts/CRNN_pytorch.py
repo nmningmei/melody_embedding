@@ -135,8 +135,8 @@ def train_loop(computer_vision_net,sound_net,loss_func,optimizers,dataloader,
             loss_SN.backward()
             optimizers[1].step()
             sound_net_loss += loss_SN
-            
-            print(f'epoch {idx_epoch}-{ii + 1:3d}/{100*(ii+1)/ len(dataloader):06.3f}%,CV_loss = {computer_vision_net_loss/(ii + 1):.5f},SN_loss = {sound_net_loss/(ii + 1):.5f}',)
+            if ii + 1 == len(dataloader):
+                print(f'epoch {idx_epoch}-{ii + 1:3d}/{100*(ii+1)/ len(dataloader):06.3f}%,CV_loss = {computer_vision_net_loss/(ii + 1):.5f},SN_loss = {sound_net_loss/(ii + 1):.5f}',)
     return computer_vision_net_loss/(ii + 1),sound_net_loss/(ii + 1)
 
 def validation_loop(computer_vision_net,sound_net,dataloader,device,idx_epoch = 1):
@@ -205,4 +205,7 @@ if __name__ == '__main__':
                         dataloader = spec_datagen,
                         device = device,
                         idx_epoch = idx_epoch,)
-        print(f'distance between the 2 outputs = {distances.mean():.5f}')
+        print(f'epoch {idx_epoch:3d},distance between the 2 outputs = {distances.mean():.5f}')
+        
+        torch.save(computer_vision_net.state_dict(),os.path.join(weight_dir,'CNN_path.pth'))
+        torch.save(sound_net.state_dict(),os.path.join(weight_dir,'RNN_path.pth'))
