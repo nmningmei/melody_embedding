@@ -23,6 +23,7 @@ from tensorflow.keras                     import (layers,
                                                   applications,
                                                   optimizers,
                                                   losses)
+from tensorflow.python.keras.utils        import losses_utils
 from scipy.spatial                        import distance
 from sklearn.utils                        import shuffle
 
@@ -79,7 +80,17 @@ rnn_reshape = layers.Lambda(lambda x: tf.keras.backend.squeeze(x, 2))(rnn)
 
 wave_model = models.Model(inputs,rnn_reshape,name = 'wave')
 
-loss_func = losses.CosineSimilarity()
+loss_func = losses.MeanAbsoluteError()
+
+def compute_loss(y_true,y_pred):
+    reconstr_loss = \
+            -tf.reduce_sum(y_true * tf.math.log(1e-10 + y_pred)
+                           + (1-y_true) * tf.math.log(1e-10 + 1 - y_pred),
+                           1)
+    latent_loss = -0.5 * tf.reduce_sum(1 + y_pred 
+                                           - tf.math.square(y_true) 
+                                           - tf.math.exp(y_pred), 1)
+    return tf.reduce_mean(reconstr_loss + latent_loss)
 
 spec_optimizer = optimizers.Adam(lr = 1e-4,)
 wave_optimizer = optimizers.Adam(lr = 1e-4,)
@@ -92,6 +103,9 @@ def train_step(img,wave_form):
         
         spec_loss = loss_func(wave_embedding,spec_embedding)
         wave_loss = loss_func(spec_embedding,wave_embedding)
+        
+#        spec_loss = compute_loss(wave_embedding,spec_embedding)
+#        wave_loss = compute_loss(spec_embedding,wave_embedding)
         
         spec_gradient = spec_tape.gradient(spec_loss,spec_model.trainable_variables)
         wave_gradient = wave_tape.gradient(wave_loss,wave_model.trainable_variables)
@@ -111,12 +125,13 @@ for epoch in range(n_epochs):
         img = img_to_array(load_img(a, target_size = (224,224,3))) / 255.
     
         wave_form = np.load(b).astype("float32")
+        wave_form = wave_form - np.mean(wave_form)
     
         train_step(img,wave_form)
         
         em1 = spec_model(img[np.newaxis])
         em2 = wave_model(wave_form[np.newaxis,])
-        print(em1.min(),em1.max(),em2.min(),em2.max())
+#        print(em1.min(),em1.max(),em2.min(),em2.max())
         total_loss += loss_func(em1,em2).numpy()
         print(f"loss = {total_loss / (step + 1):.4f}")
     
