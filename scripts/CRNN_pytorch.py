@@ -26,7 +26,8 @@ from torch.utils.data       import Dataset,DataLoader
 from torch.autograd         import Variable
 from torch                  import nn
 
-import numpy as np
+import numpy  as np
+import pandas as pd
 from tensorflow.keras.preprocessing.image import (load_img,
                                                   img_to_array)
 
@@ -35,8 +36,9 @@ class custimizedDataset(Dataset):
     def __init__(self,data_root,device = 'cpu'):
         self.samples    = []
         self.device     = device
-        for image,wave in zip(np.sort(glob(os.path.join(data_root[0],'*.png'))),
-                              np.sort(glob(os.path.join(data_root[1],'*.npy')))):
+        for image in glob(os.path.join(data_root[0],'*.png')):
+            # find matched wave form file
+            wave = image.replace('.png','.npy').replace(image.split("/")[-2],data_root[1].split("/")[-1])
             self.samples.append([image,wave])
     
     def __len__(self):
@@ -47,9 +49,9 @@ class custimizedDataset(Dataset):
         img                     = img_to_array(load_img(self.samples[idx][0], target_size = (224,224,3)))
         img_tensor              = TF.to_tensor(img)
         normalize_image_tensor  = TF.normalize(img_tensor,
-                                               mean = [0.485, 0.456, 0.406],
-                                               std = [0.229, 0.224, 0.225],
-                                               inplace = True,
+                                               mean     = [0.485, 0.456, 0.406],
+                                               std      = [0.229, 0.224, 0.225],
+                                               inplace  = True,
                                                ).to(device)
         # load sound waves
         wave_form               = np.load(self.samples[idx][1]).astype('float32')
@@ -159,7 +161,7 @@ def train_loop(computer_vision_net,
             optimizers[1].step()
             sound_net_loss  += loss_SN
 #            if ii + 1 == len(dataloader):
-            print(f'epoch {idx_epoch}-{ii + 1:3d}/{100*(ii+1)/ len(dataloader):06.3f}%,CV_loss = {computer_vision_net_loss/(ii + 1):.5f},SN_loss = {sound_net_loss/(ii + 1):.5f}',)
+            print(f'epoch {idx_epoch}-{ii + 1:3d}/{100*(ii+1)/ len(dataloader):07.3f}%,CV_loss = {computer_vision_net_loss/(ii + 1):.5f},SN_loss = {sound_net_loss/(ii + 1):.5f}',)
     return computer_vision_net_loss/(ii + 1),sound_net_loss/(ii + 1)
 
 def validation_loop(computer_vision_net,sound_net,dataloader,device,idx_epoch = 1):
@@ -181,13 +183,17 @@ def validation_loop(computer_vision_net,sound_net,dataloader,device,idx_epoch = 
 
 if __name__ == '__main__':
     # DEFINE MAIN VARIABLES & DIRECTORIES
-    spectrograms_dir    = '../data/spectrograms/'
-    same_length_dir     = '../data/same_length/'
+    spectrograms_dir    = '../data/spectrograms'
+    same_length_dir     = '../data/same_length'
     
     # model weights
     weight_dir = '../weights'
     if not os.path.exists(weight_dir):
         os.mkdir(weight_dir)
+    # results
+    saving_dir = '../results'
+    if not os.path.exists(saving_dir):
+        os.mkdir(saving_dir)
     
     # LOAD SPECTROGRAMS AND WAVEFORMS FILES
     spectrograms        = np.sort(glob(os.path.join(spectrograms_dir, '*.png')))
@@ -197,10 +203,10 @@ if __name__ == '__main__':
     if torch.cuda.is_available():torch.cuda.empty_cache();torch.cuda.manual_seed(12345);
     device          = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     learning_rate   = 1e-4
-    n_epochs        = 200
+    n_epochs        = 1000
     batch_size      = 5
     
-    spec_datagen    = DataLoader(custimizedDataset([spectrograms_dir,same_length_dir]),batch_size = batch_size,shuffle = False,)
+    spec_datagen    = DataLoader(custimizedDataset([spectrograms_dir,same_length_dir]),batch_size = batch_size,shuffle = True,)
     
     computer_vision_net     = CNN_path(device = device)
     sound_net               = RNN_path(device = device,batch_size = batch_size)
@@ -212,24 +218,54 @@ if __name__ == '__main__':
     optimizer1  = optim.Adam(computer_vision_net.parameters(),  lr = learning_rate)#,weight_decay = 1e-7)
     optimizer2  = optim.Adam(sound_net.parameters(),            lr = learning_rate)#,weight_decay = 1e-7)
     
-    for idx_epoch in range(n_epochs):
-        torch.cuda.empty_cache()
-        
-        print('training ...')
-        train_losses = train_loop(computer_vision_net,
-                                  sound_net,
-                                  loss_func     = loss_func,
-                                  optimizers    = [optimizer1,optimizer2],
-                                  dataloader    = spec_datagen,
-                                  idx_epoch     = idx_epoch,
-                                  device        = device,)
-        print('validating ...')
-        distances = validation_loop(computer_vision_net,
-                                    sound_net,
-                                    dataloader  = spec_datagen,
-                                    device      = device,
-                                    idx_epoch   = idx_epoch,)
-        print(f'epoch {idx_epoch:3d},distance between the 2 outputs = {distances.mean():.5f}')
-        
-        torch.save(computer_vision_net.state_dict(),os.path.join(weight_dir,'CNN_path.pth'))
-        torch.save(sound_net.state_dict(),os.path.join(weight_dir,'RNN_path.pth'))
+    if os.path.exists(os.path.join(saving_dir,'scores.csv')):
+        computer_vision_net.load_state_dict(torch.load(os.path.join(weight_dir,'CNN_path.pth')))
+        sound_net.load_state_dict(          torch.load(os.path.join(weight_dir,'RNN_path.pth')))
+        results     = pd.read_csv(os.path.join(saving_dir,'scores.csv'))
+        results     = {col_name:list(results[col_name].values) for col_name in results.columns}
+        best_score  = torch.tensor(results['distance'].min(),dtype = torch.float64)
+    else:
+        print('initialize')
+        results = dict(
+                train_loss_CV   = [],
+                train_loss_SN   = [],
+                distance        = [],
+                epochs          = [],
+                learning_rate   = [],
+                )
+        best_score = torch.from_numpy(np.array(np.inf))
+        for idx_epoch in range(n_epochs):
+            torch.cuda.empty_cache()
+            if os.path.exists(os.path.join(weight_dir,'CNN_path.pth')):
+                print('load best weights')
+                computer_vision_net.load_state_dict(torch.load(os.path.join(weight_dir,'CNN_path.pth')))
+                sound_net.load_state_dict(torch.load(os.path.join(weight_dir,'RNN_path.pth')))
+            print('training ...')
+            train_losses = train_loop(computer_vision_net,
+                                      sound_net,
+                                      loss_func     = loss_func,
+                                      optimizers    = [optimizer1,optimizer2],
+                                      dataloader    = spec_datagen,
+                                      idx_epoch     = idx_epoch,
+                                      device        = device,)
+            print('validating ...')
+            distances = validation_loop(computer_vision_net,
+                                        sound_net,
+                                        dataloader  = spec_datagen,
+                                        device      = device,
+                                        idx_epoch   = idx_epoch,)
+            print(f'epoch {idx_epoch:3d},distance between the 2 outputs = {distances.mean():.5f}')
+            
+            print('determine early stop and save weights')
+            if distances.mean().cpu().clone().detach().type(torch.float64) < best_score:
+                best_score = distances.mean().cpu().clone().detach().type(torch.float64)
+                print('saving weights of the best models')
+                torch.save(computer_vision_net.state_dict(),os.path.join(weight_dir,'CNN_path.pth'))
+                torch.save(sound_net.state_dict(),          os.path.join(weight_dir,'RNN_path.pth'))
+            results['train_loss_CV'].append(train_losses[0].detach().cpu().numpy())
+            results['train_loss_SN'].append(train_losses[1].detach().cpu().numpy())
+            results['distance'     ].append(distances.mean().detach().cpu().numpy())
+            results['epochs'       ].append(idx_epoch + 1)
+            results['learning_rate'].append(learning_rate)
+            results_to_save = pd.DataFrame(results)
+            results_to_save.to_csv(os.path.join(saving_dir,'scores.csv'),index = False)
