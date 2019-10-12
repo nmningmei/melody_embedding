@@ -129,7 +129,6 @@ def train_computer_vision_net_loop(computer_vision_net,
                epsilon      = 1e-12):
     
     computer_vision_net_loss    = 0.
-#    sound_net_loss              = 0.
     
     for ii,(batch) in enumerate(dataloader):
         if ii + 1 <= len(dataloader):
@@ -149,18 +148,6 @@ def train_computer_vision_net_loop(computer_vision_net,
             optimizers[0].step() # modify the weights
             computer_vision_net_loss += loss_CVN
             
-#            # update loop for SN:
-#            optimizers[1].zero_grad() # Important!!
-#            output_SN       = sound_net(input_soundwave)
-#            with torch.no_grad():
-#                output_CVN  = computer_vision_net(input_spectrogram)
-#            loss_SN         = loss_func(output_SN,output_CVN)
-#            selected_params = torch.cat([x.view(-1) for x in sound_net.parameters()]) # L2 
-#            loss_SN         += l1 * torch.norm(selected_params,1) + l2 * torch.norm(selected_params,2) + epsilon
-#            loss_SN.backward()
-#            optimizers[1].step()
-#            sound_net_loss  += loss_SN
-#            if ii + 1 == len(dataloader):
             print(f'epoch {idx_epoch}-{ii + 1:3d}/{100*(ii+1)/ len(dataloader):07.3f}%,CV_loss = {computer_vision_net_loss/(ii + 1):.5f}',)
     return computer_vision_net_loss/(ii + 1)
 
@@ -175,26 +162,12 @@ def train_sound_net_loop(computer_vision_net,
                device       = 'cpu',
                epsilon      = 1e-12):
     
-#    computer_vision_net_loss    = 0.
     sound_net_loss              = 0.
     
     for ii,(batch) in enumerate(dataloader):
         if ii + 1 <= len(dataloader):
             input_spectrogram   = Variable(batch[0]).to(device)
             input_soundwave     = Variable(batch[1]).to(device)
-            
-#            # update loop for CVN:
-#            optimizers[0].zero_grad() # Important!!
-#            output_CVN      = computer_vision_net(input_spectrogram)
-#            with torch.no_grad(): # freeze the other network
-#                output_SN   = sound_net(input_soundwave)
-#            loss_CVN        = loss_func(output_CVN,output_SN) # loss
-#            # add regularization to the weights
-#            selected_params = torch.cat([x.view(-1) for x in computer_vision_net.parameters()])
-#            loss_CVN        += l1 * torch.norm(selected_params,1) + l2 * torch.norm(selected_params,2) + epsilon
-#            loss_CVN.backward() # autograd
-#            optimizers[0].step() # modify the weights
-#            computer_vision_net_loss += loss_CVN
             
             # update loop for SN:
             optimizers[1].zero_grad() # Important!!
@@ -207,7 +180,7 @@ def train_sound_net_loop(computer_vision_net,
             loss_SN.backward()
             optimizers[1].step()
             sound_net_loss  += loss_SN
-#            if ii + 1 == len(dataloader):
+            
             print(f'epoch {idx_epoch}-{ii + 1:3d}/{100*(ii+1)/ len(dataloader):07.3f}%,SN_loss = {sound_net_loss/(ii + 1):.5f}',)
     return sound_net_loss/(ii + 1)#computer_vision_net_loss/(ii + 1),CV_loss = {computer_vision_net_loss/(ii + 1):.5f},
 
@@ -233,12 +206,14 @@ if __name__ == '__main__':
     spectrograms_dir    = '../data/spectrograms'
     same_length_dir     = '../data/same_length'
     
+    experiment = 'train_one_by_one_BCEweightloss'
+    
     # model weights
-    weight_dir = '../weights'
+    weight_dir = '../weights/{}'.format(experiment)
     if not os.path.exists(weight_dir):
         os.mkdir(weight_dir)
     # results
-    saving_dir = '../results'
+    saving_dir = '../results/{}'.format(experiment)
     if not os.path.exists(saving_dir):
         os.mkdir(saving_dir)
     
@@ -260,7 +235,7 @@ if __name__ == '__main__':
     sound_net               = RNN_path(device = device,batch_size = batch_size)
     
     #Loss function
-    loss_func   = nn.BCELoss()
+    loss_func   = nn.BCEWithLogitsLoss()
     
     #Optimizers
     optimizer1  = optim.Adam(computer_vision_net.parameters(),  lr = learning_rate)#,weight_decay = 1e-7)
@@ -315,7 +290,7 @@ if __name__ == '__main__':
 #                torch.save(sound_net.state_dict(),          os.path.join(weight_dir,'RNN_path.pth'))
                 early_stop = 0
             else:
-                print('nah, I have seen better +{early_stop + 1}\n')
+                print(f'nah, I have seen better + {early_stop + 1}\n')
                 early_stop += 1
             
             results['train_loss'].append(train_losse_CV.detach().cpu().numpy())
@@ -359,7 +334,7 @@ if __name__ == '__main__':
                 torch.save(sound_net.state_dict(),          os.path.join(weight_dir,'RNN_path.pth'))
                 early_stop = 0
             else:
-                print('nah, I have seen better\n')
+                print(f'nah, I have seen better + {early_stop + 1}\n')
                 early_stop += 1
             results['train_loss'].append(train_losses_SN.detach().cpu().numpy())
             results['train_model'].append("CRNN")
