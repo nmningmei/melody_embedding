@@ -8,7 +8,7 @@
 - [ ] Train the 2 pathways to extract informative embeddings
 - [ ] Examine the embeddings via decoding
 
-## Best score (distance between embeddings): 0.01067
+## Best score (distance between embeddings): 0.14505
 
 ## Convolutional Neural Network -- re-train mobileNetV2:
 ```
