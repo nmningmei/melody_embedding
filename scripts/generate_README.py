@@ -26,14 +26,34 @@ class CNN_path(nn.Module):
         
         self.device         = device
         self.batch_size     = batch_size
-        self.base_model     = models.mobilenet_v2(pretrained = False,).features.to(self.device)
-        self.pooling        = nn.AdaptiveAvgPool2d((1,1,)).to(self.device)
-        self.activation     = nn.Sigmoid().to(self.device)
-   
+        self.base_model     = models.mobilenet_v2(pretrained = True,).features.to(self.device)
+        self.pooling        = nn.AdaptiveMaxPool2d((1,1,)).to(self.device)
+        self.activation     = nn.SELU(
+                                      ).to(self.device)
+        self.mu_node        = nn.Linear(in_features     = 1280,
+                                        out_features    = 300,
+                                        ).to(self.device)
+        self.logvar_node    = nn.Linear(in_features     = 1280,
+                                        out_features    = 300,
+                                        ).to(self.device)
+        self.node_activation= nn.Sigmoid(
+                                        ).to(self.device)
+    
+    def reparameterize(self, mu, logvar):
+        std = torch.exp(0.5*logvar)
+        eps = torch.randn_like(std)
+        return mu + eps*std
+    
     def forward(self,x):
         base_output = self.base_model(x)
-        base_output = self.activation(self.pooling(base_output))
-        return torch.squeeze(base_output)
+        embedding = torch.squeeze(self.activation(self.pooling(base_output)))
+        
+        mu = self.activation(self.mu_node(embedding))
+        logvar = self.activation(self.logvar_node(embedding))
+        
+        z = self.node_activation(self.reparameterize(mu,logvar))
+        
+        return z,embedding
 
 ## CRNN
 class RNN_path(nn.Module):
@@ -58,25 +78,48 @@ class RNN_path(nn.Module):
                                             stride          = 12,
                                             padding_mode    = 'valid',
                                             ).to(self.device)
+        self.pooling            = nn.AdaptiveMaxPool1d(1).to(self.device)
         self.rnn                = nn.GRU(input_size         = 16,
                                          hidden_size        = 1,
                                          num_layers         = 1,
                                          batch_first        = True,
                                          ).to(self.device)
-        self.output_activation  = nn.Sigmoid(
+        self.output_activation  = nn.SELU(
                                             ).to(self.device)
+        self.mu_node            = nn.Linear(in_features     = 1280,
+                                            out_features    = 300,
+                                            ).to(self.device)
+        self.logvar_node        = nn.Linear(in_features     = 1280,
+                                            out_features    = 300,
+                                            ).to(self.device)
+        self.node_activation    = nn.Sigmoid(
+                                            ).to(self.device)
+    
+    def reparameterize(self, mu, logvar):
+        std = torch.exp(0.5*logvar)
+        eps = torch.randn_like(std)
+        return mu + eps*std
     
     def forward(self,x):
         x       = torch.reshape(x,(self.batch_size,1,-1))
         conv1   = self.activation(self.conv1(x))
-        conv2   = self.activation(self.conv2(conv1))
-        rnn,_   = self.rnn(conv2.permute(0,2,1)) # don't care about the hidden states
-        output  = self.output_activation(rnn)
-        return torch.squeeze(output)
+        conv2   = self.activation(self.conv2(conv1)).permute(0,2,1)
+#        rnn,_   = self.rnn(conv2.permute(0,2,1)) # don't care about the hidden states
+        embedding  = torch.squeeze(self.pooling(self.output_activation(conv2)))
+        
+        mu = self.output_activation(self.mu_node(embedding))
+        logvar = self.output_activation(self.logvar_node(embedding))
+        
+        z = self.node_activation(self.reparameterize(mu,logvar))
+        
+        return z,embedding
+
 
 if __name__ == '__main__':
-    weight_dir = '../weights'
-    working_dir = '../results'
+    
+    experiment = 'train_one_by_one'
+    weight_dir = '../weights/{}'.format(experiment)
+    working_dir = '../results/{}'.format(experiment)
     results = pd.read_csv(os.path.join(working_dir,'scores.csv'))
     
     device          = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
@@ -93,8 +136,6 @@ if __name__ == '__main__':
 ## Goals:
 - [ ] Train the 2 pathways to extract informative embeddings
 - [ ] Examine the embeddings via decoding
-
-## Best score (distance between embeddings): {best_score:.5f}
 
 ## Convolutional Neural Network -- re-train mobileNetV2:
 ```
