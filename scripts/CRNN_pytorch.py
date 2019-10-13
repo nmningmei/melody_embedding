@@ -31,6 +31,8 @@ import pandas as pd
 from tensorflow.keras.preprocessing.image import (load_img,
                                                   img_to_array)
 
+from models import CNN_path,RNN_path
+
 # define the dataflow for training -- better than writing the for-loop myself
 class custimizedDataset(Dataset):
     def __init__(self,data_root,device = 'cpu'):
@@ -58,104 +60,6 @@ class custimizedDataset(Dataset):
         wave_tensor             = torch.from_numpy(wave_form).to(device)
         return (normalize_image_tensor,wave_tensor)
 
-# define the models
-
-## CNN
-class CNN_path(nn.Module):
-    def __init__(self,
-                 device,
-                 batch_size = 1):
-        super(CNN_path,self).__init__()
-        
-        self.device         = device
-        self.batch_size     = batch_size
-        self.base_model     = models.mobilenet_v2(pretrained = True,).features.to(self.device)
-        self.pooling        = nn.AdaptiveMaxPool2d((1,1,)).to(self.device)
-        self.activation     = nn.SELU(
-                                      ).to(self.device)
-        self.mu_node        = nn.Linear(in_features     = 1280,
-                                        out_features    = 300,
-                                        ).to(self.device)
-        self.logvar_node    = nn.Linear(in_features     = 1280,
-                                        out_features    = 300,
-                                        ).to(self.device)
-        self.node_activation= nn.Sigmoid(
-                                        ).to(self.device)
-    
-    def reparameterize(self, mu, logvar):
-        std = torch.exp(0.5*logvar)
-        eps = torch.randn_like(std)
-        return mu + eps*std
-    
-    def forward(self,x):
-        base_output = self.base_model(x)
-        embedding = torch.squeeze(self.activation(self.pooling(base_output)))
-        
-        mu = self.activation(self.mu_node(embedding))
-        logvar = self.activation(self.logvar_node(embedding))
-        
-        z = self.node_activation(self.reparameterize(mu,logvar))
-        
-        return z,embedding
-
-## CRNN
-class RNN_path(nn.Module):
-    def __init__(self,
-                 device,
-                 batch_size = 1,):
-        super(RNN_path,self).__init__()
-        
-        self.device             = device
-        self.batch_size         = batch_size
-        self.conv1              = nn.Conv1d(in_channels     = 1,
-                                            out_channels    = 32,
-                                            kernel_size     = 1210,
-                                            stride          = 12,
-                                            padding_mode    = 'valid',
-                                            ).to(self.device)
-        self.activation         = nn.SELU(inplace           = True
-                                          ).to(self.device)
-        self.conv2              = nn.Conv1d(in_channels     = 32,
-                                            out_channels    = 16,
-                                            kernel_size     = 1210,
-                                            stride          = 12,
-                                            padding_mode    = 'valid',
-                                            ).to(self.device)
-        self.pooling            = nn.AdaptiveMaxPool1d(1).to(self.device)
-        self.rnn                = nn.GRU(input_size         = 16,
-                                         hidden_size        = 1,
-                                         num_layers         = 1,
-                                         batch_first        = True,
-                                         ).to(self.device)
-        self.output_activation  = nn.SELU(
-                                            ).to(self.device)
-        self.mu_node            = nn.Linear(in_features     = 1280,
-                                            out_features    = 300,
-                                            ).to(self.device)
-        self.logvar_node        = nn.Linear(in_features     = 1280,
-                                            out_features    = 300,
-                                            ).to(self.device)
-        self.node_activation    = nn.Sigmoid(
-                                            ).to(self.device)
-    
-    def reparameterize(self, mu, logvar):
-        std = torch.exp(0.5*logvar)
-        eps = torch.randn_like(std)
-        return mu + eps*std
-    
-    def forward(self,x):
-        x       = torch.reshape(x,(self.batch_size,1,-1))
-        conv1   = self.activation(self.conv1(x))
-        conv2   = self.activation(self.conv2(conv1)).permute(0,2,1)
-#        rnn,_   = self.rnn(conv2.permute(0,2,1)) # don't care about the hidden states
-        embedding  = torch.squeeze(self.pooling(self.output_activation(conv2)))
-        
-        mu = self.output_activation(self.mu_node(embedding))
-        logvar = self.output_activation(self.logvar_node(embedding))
-        
-        z = self.node_activation(self.reparameterize(mu,logvar))
-        
-        return z,embedding
 
 def train_computer_vision_net_loop(computer_vision_net,
                sound_net,
@@ -272,7 +176,7 @@ if __name__ == '__main__':
     # initalize the GPU with specific state: for reproducibility
     if torch.cuda.is_available():torch.cuda.empty_cache();torch.cuda.manual_seed(12345);
     device          = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-    learning_rate   = 1e-4
+    original_lr     = 1e-4
     n_epochs        = 1000
     batch_size      = 5
     patience        = 10
@@ -283,10 +187,10 @@ if __name__ == '__main__':
     sound_net               = RNN_path(device = device,batch_size = batch_size)
     
     #Loss function
-    loss_func   = nn.BCEWithLogitsLoss()
+    loss_func   = nn.BCELoss()
     
     #Optimizers
-    original_lr = learning_rate
+    learning_rate = original_lr
     optimizer1  = optim.Adam(computer_vision_net.parameters(),  lr = learning_rate)#,weight_decay = 1e-7)
     optimizer2  = optim.Adam(sound_net.parameters(),            lr = learning_rate)#,weight_decay = 1e-7)
     
@@ -314,7 +218,6 @@ if __name__ == '__main__':
             torch.cuda.empty_cache()
             if os.path.exists(os.path.join(weight_dir,'RNN_path.pth')):
                 print('load best weights')
-#                computer_vision_net.load_state_dict(torch.load(os.path.join(weight_dir,'CNN_path.pth')))
                 sound_net.load_state_dict(          torch.load(os.path.join(weight_dir,'RNN_path.pth')))
             train_losses_SN = train_sound_net_loop(
                                       computer_vision_net,
@@ -336,13 +239,12 @@ if __name__ == '__main__':
             if distances.mean().cpu().clone().detach().type(torch.float64) < best_score:
                 best_score = distances.mean().cpu().clone().detach().type(torch.float64)
                 print('saving weights of the best models\n')
-#                torch.save(computer_vision_net.state_dict(),os.path.join(weight_dir,'CNN_path.pth'))
                 torch.save(sound_net.state_dict(),          os.path.join(weight_dir,'RNN_path.pth'))
                 early_stop = 0
             else:
                 print(f'nah, I have seen better + {early_stop + 1}\n')
                 early_stop += 1
-                learning_rate /= 10
+                learning_rate /= 2
                 optimizer1  = optim.Adam(computer_vision_net.parameters(),  lr = learning_rate)#,weight_decay = 1e-7)
                 optimizer2  = optim.Adam(sound_net.parameters(),            lr = learning_rate)#,weight_decay = 1e-7)
             results['train_loss'].append(train_losses_SN.detach().cpu().numpy())
@@ -366,7 +268,6 @@ if __name__ == '__main__':
             if os.path.exists(os.path.join(weight_dir,'CNN_path.pth')):
                 print('load best weights')
                 computer_vision_net.load_state_dict(torch.load(os.path.join(weight_dir,'CNN_path.pth')))
-#                sound_net.load_state_dict(          torch.load(os.path.join(weight_dir,'RNN_path.pth')))
             print('training ...')
             train_losse_CV = train_computer_vision_net_loop(
                                       computer_vision_net,
@@ -389,12 +290,11 @@ if __name__ == '__main__':
                 best_score = distances.mean().cpu().clone().detach().type(torch.float64)
                 print('saving weights of the best models\n')
                 torch.save(computer_vision_net.state_dict(),os.path.join(weight_dir,'CNN_path.pth'))
-#                torch.save(sound_net.state_dict(),          os.path.join(weight_dir,'RNN_path.pth'))
                 early_stop = 0
             else:
                 print(f'nah, I have seen better + {early_stop + 1}\n')
                 early_stop += 1
-                learning_rate /= 10
+                learning_rate /= 2
                 optimizer1  = optim.Adam(computer_vision_net.parameters(),  lr = learning_rate)#,weight_decay = 1e-7)
                 optimizer2  = optim.Adam(sound_net.parameters(),            lr = learning_rate)#,weight_decay = 1e-7)
             

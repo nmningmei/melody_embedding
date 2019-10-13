@@ -24,6 +24,8 @@ import pandas as pd
 from tensorflow.keras.preprocessing.image import (load_img,
                                                   img_to_array)
 
+from models import CNN_path,RNN_path
+
 # define the dataflow for training -- better than writing the for-loop myself
 class custimizedDataset(Dataset):
     def __init__(self,data_root,device = 'cpu'):
@@ -51,104 +53,6 @@ class custimizedDataset(Dataset):
         wave_tensor             = torch.from_numpy(wave_form).to(device)
         return (normalize_image_tensor,wave_tensor)
 
-# define the models
-
-## CNN
-class CNN_path(nn.Module):
-    def __init__(self,
-                 device,
-                 batch_size = 1):
-        super(CNN_path,self).__init__()
-        
-        self.device         = device
-        self.batch_size     = batch_size
-        self.base_model     = models.mobilenet_v2(pretrained = True,).features.to(self.device)
-        self.pooling        = nn.AdaptiveMaxPool2d((1,1,)).to(self.device)
-        self.activation     = nn.SELU(
-                                      ).to(self.device)
-        self.mu_node        = nn.Linear(in_features     = 1280,
-                                        out_features    = 300,
-                                        ).to(self.device)
-        self.logvar_node    = nn.Linear(in_features     = 1280,
-                                        out_features    = 300,
-                                        ).to(self.device)
-        self.node_activation= nn.Sigmoid(
-                                        ).to(self.device)
-    
-    def reparameterize(self, mu, logvar):
-        std = torch.exp(0.5*logvar)
-        eps = torch.randn_like(std)
-        return mu + eps*std
-    
-    def forward(self,x):
-        base_output = self.base_model(x)
-        embedding = torch.squeeze(self.activation(self.pooling(base_output)))
-        
-        mu = self.activation(self.mu_node(embedding))
-        logvar = self.activation(self.logvar_node(embedding))
-        
-        z = self.node_activation(self.reparameterize(mu,logvar))
-        
-        return z,embedding
-
-## CRNN
-class RNN_path(nn.Module):
-    def __init__(self,
-                 device,
-                 batch_size = 1,):
-        super(RNN_path,self).__init__()
-        
-        self.device             = device
-        self.batch_size         = batch_size
-        self.conv1              = nn.Conv1d(in_channels     = 1,
-                                            out_channels    = 32,
-                                            kernel_size     = 1210,
-                                            stride          = 12,
-                                            padding_mode    = 'valid',
-                                            ).to(self.device)
-        self.activation         = nn.SELU(inplace           = True
-                                          ).to(self.device)
-        self.conv2              = nn.Conv1d(in_channels     = 32,
-                                            out_channels    = 16,
-                                            kernel_size     = 1210,
-                                            stride          = 12,
-                                            padding_mode    = 'valid',
-                                            ).to(self.device)
-        self.pooling            = nn.AdaptiveMaxPool1d(1).to(self.device)
-        self.rnn                = nn.GRU(input_size         = 16,
-                                         hidden_size        = 1,
-                                         num_layers         = 1,
-                                         batch_first        = True,
-                                         ).to(self.device)
-        self.output_activation  = nn.SELU(
-                                            ).to(self.device)
-        self.mu_node            = nn.Linear(in_features     = 1280,
-                                            out_features    = 300,
-                                            ).to(self.device)
-        self.logvar_node        = nn.Linear(in_features     = 1280,
-                                            out_features    = 300,
-                                            ).to(self.device)
-        self.node_activation    = nn.Sigmoid(
-                                            ).to(self.device)
-    
-    def reparameterize(self, mu, logvar):
-        std = torch.exp(0.5*logvar)
-        eps = torch.randn_like(std)
-        return mu + eps*std
-    
-    def forward(self,x):
-        x       = torch.reshape(x,(self.batch_size,1,-1))
-        conv1   = self.activation(self.conv1(x))
-        conv2   = self.activation(self.conv2(conv1)).permute(0,2,1)
-#        rnn,_   = self.rnn(conv2.permute(0,2,1)) # don't care about the hidden states
-        embedding  = torch.squeeze(self.pooling(self.output_activation(conv2)))
-        
-        mu = self.output_activation(self.mu_node(embedding))
-        logvar = self.output_activation(self.logvar_node(embedding))
-        
-        z = self.node_activation(self.reparameterize(mu,logvar))
-        
-        return z,embedding
 
 if __name__ == '__main__':
     from matplotlib import pyplot as plt
@@ -162,7 +66,7 @@ if __name__ == '__main__':
     spectrograms_dir    = '../data/spectrograms'
     same_length_dir     = '../data/same_length'
     
-    experiment = 'train_one_by_one'
+    experiment = 'train_both_with_reparameterize_trick' # train_one_by_one, train_both_with_reparameterize_trick
     
     # model weights
     weight_dir = '../weights/{}'.format(experiment)
@@ -187,7 +91,7 @@ if __name__ == '__main__':
     device          = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     learning_rate   = 1e-4
     n_epochs        = 1000
-    batch_size      = 5
+    batch_size      = 10
     
     spec_datagen    = DataLoader(custimizedDataset([spectrograms_dir,same_length_dir]),batch_size = batch_size,shuffle = False,)
     
@@ -200,6 +104,8 @@ if __name__ == '__main__':
         with torch.no_grad():
             input_spectrogram   = Variable(batch[0]).to(device)
             input_soundwave     = Variable(batch[1]).to(device)
+            
+            input_soundwave     = (input_soundwave - input_soundwave.mean(1).view(-1,1)) / (input_soundwave.std(1).view(-1,1))
             
             _,output_CVN  = computer_vision_net(input_spectrogram)
             _,output_SN   = sound_net(input_soundwave)
@@ -218,7 +124,7 @@ if __name__ == '__main__':
                              ])
     
     df = pd.DataFrame(data.T,columns = labels)
-    
+    asdf
     df_plot = distance.squareform(distance.pdist(df.values.T - df.values.T.mean(1).reshape(-1,1),metric = 'cosine'))
     df_plot = pd.DataFrame(df_plot,columns = labels, index = labels)
     
