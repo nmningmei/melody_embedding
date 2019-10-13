@@ -78,6 +78,7 @@ def train_computer_vision_net_loop(computer_vision_net,
         if ii + 1 <= len(dataloader):
             input_spectrogram   = Variable(batch[0]).to(device)
             input_soundwave     = Variable(batch[1]).to(device)
+            input_soundwave     = (input_soundwave - input_soundwave.mean(1).view(-1,1)) / (input_soundwave.std(1).view(-1,1))
             
             # update loop for CVN:
             optimizers[0].zero_grad() # Important!!
@@ -112,6 +113,7 @@ def train_sound_net_loop(computer_vision_net,
         if ii + 1 <= len(dataloader):
             input_spectrogram   = Variable(batch[0]).to(device)
             input_soundwave     = Variable(batch[1]).to(device)
+            input_soundwave     = (input_soundwave - input_soundwave.mean(1).view(-1,1)) / (input_soundwave.std(1).view(-1,1))
             
             # update loop for SN:
             optimizers[1].zero_grad() # Important!!
@@ -137,6 +139,7 @@ def validation_loop(computer_vision_net,sound_net,dataloader,device,idx_epoch = 
             if ii + 1 <= len(dataloader):
                 input_spectrogram   = Variable(batch[0]).to(device)
                 input_soundwave     = Variable(batch[1]).to(device)
+                input_soundwave     = (input_soundwave - input_soundwave.mean(1).view(-1,1)) / (input_soundwave.std(1).view(-1,1))
                 
                 _,embedding_CVN  = computer_vision_net(input_spectrogram)
                 _,embddding_SN   = sound_net(input_soundwave)
