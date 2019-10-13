@@ -8,8 +8,6 @@
 - [ ] Train the 2 pathways to extract informative embeddings
 - [ ] Examine the embeddings via decoding
 
-## Best score (distance between embeddings): 0.14505
-
 ## Convolutional Neural Network -- re-train mobileNetV2:
 ```
 <bound method CNN_path.forward of CNN_path(
@@ -292,8 +290,11 @@
       (2): ReLU6(inplace=True)
     )
   )
-  (pooling): AdaptiveAvgPool2d(output_size=(1, 1))
-  (activation): Sigmoid()
+  (pooling): AdaptiveMaxPool2d(output_size=(1, 1))
+  (activation): SELU()
+  (mu_node): Linear(in_features=1280, out_features=300, bias=True)
+  (logvar_node): Linear(in_features=1280, out_features=300, bias=True)
+  (node_activation): Sigmoid()
 )>
 ```
 ## Convolutional Recurrent Neural Network:
@@ -302,7 +303,11 @@
   (conv1): Conv1d(1, 32, kernel_size=(1210,), stride=(12,))
   (activation): SELU(inplace=True)
   (conv2): Conv1d(32, 16, kernel_size=(1210,), stride=(12,))
+  (pooling): AdaptiveMaxPool1d(output_size=1)
   (rnn): GRU(16, 1, batch_first=True)
-  (output_activation): Sigmoid()
+  (output_activation): SELU()
+  (mu_node): Linear(in_features=1280, out_features=300, bias=True)
+  (logvar_node): Linear(in_features=1280, out_features=300, bias=True)
+  (node_activation): Sigmoid()
 )>
 ```
